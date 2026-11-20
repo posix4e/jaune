@@ -1,5 +1,6 @@
 import Jaune.Machine
 import Jaune.BN254
+import Jaune.Secp256k1
 
 namespace Jaune
 
@@ -31,7 +32,7 @@ def executeEcrecover (evm : Evm) : PrecompileResult :=
          s ≥ secp256k1.curveOrder.toU256 then
         .ok Gas.ecrecover []
       else
-        match secp256k1.recover h v r s with
+        match secp256k1.recoverFast h v r s with
         | .none => .ok Gas.ecrecover []
         | some adr => .ok Gas.ecrecover adr.toU256.toBytes
 

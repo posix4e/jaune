@@ -19,6 +19,7 @@ import Jaune.Check.MessageCall
 import Jaune.Check.Precompiles
 import Jaune.Check.RIPEMD160Spec
 import Jaune.Check.RlpEval
+import Jaune.Check.Secp256k1
 import Jaune.Check.Sufficiency
 import Jaune.Check.Transaction
 import Jaune.Check.Types

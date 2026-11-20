@@ -821,17 +821,17 @@ def recoverSender (chain_id: UInt64) (tx: Transaction) : Except CryptoError Addr
   | .legacy _ _ =>
     if v = 27 ∨ v = 28
     then
-      (secp256k1.recover signingHash (v - 27).toBool r s).toExcept
+      (secp256k1.recoverFast signingHash (v - 27).toBool r s).toExcept
         (.invalidSignature (.text "sender recovery failed"))
     else
       let chain_id_x2 := (chain_id.toNat) * (2)
       .assert (v = 35 + chain_id_x2 ∨ v = 36 + chain_id_x2)
         (CryptoError.invalidSignature (.text "bad v"))
-      (secp256k1.recover signingHash (v - 35 - chain_id_x2).toBool r s).toExcept
+      (secp256k1.recoverFast signingHash (v - 35 - chain_id_x2).toBool r s).toExcept
         (.invalidSignature (.text "sender recovery failed"))
   | _ =>
     .assert (v < 2) (CryptoError.invalidSignature .none)
-    (secp256k1.recover signingHash v.toBool r s).toExcept
+    (secp256k1.recoverFast signingHash v.toBool r s).toExcept
       (.invalidSignature (.text "sender recovery failed"))
 
 def recoverAuthority (auth : Authorization) : Except CryptoError Address := do
@@ -855,7 +855,7 @@ def recoverAuthority (auth : Authorization) : Except CryptoError Address := do
   -- EIP-7702 invalidates an authorization tuple, not its enclosing
   -- transaction: a recovery failure is therefore handled by
   -- `setDelegationStep` exactly like the other invalid-signature forms.
-  (secp256k1.recover signingHash yParity.toBool r s ).toExcept (.invalidSignature .none)
+  (secp256k1.recoverFast signingHash yParity.toBool r s ).toExcept (.invalidSignature .none)
 
 def setDelegationStep
     (auth : Authorization) (msg : Msg) (refundCounter : U256) :

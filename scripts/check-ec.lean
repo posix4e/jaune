@@ -1,5 +1,6 @@
 import Jaune.EC
 import Jaune.BLS
+import Jaune.Secp256k1
 
 open Jaune
 
@@ -595,6 +596,9 @@ def recoverGroup (st : Tally) : IO Unit := do
     let exp : Option Address := c.expected.map Nat.toAddress
     checkAdr st s!"pin recover {c.name}" got exp
     checkAdr st s!"diff recover {c.name}" got ref
+    -- The recovery the callers use, over fixed-width words (`Jaune/Secp256k1.lean`).
+    checkAdr st s!"pin recoverFast {c.name}"
+      (secp256k1.recoverFast c.h.toU256 c.v c.r.toU256 c.s.toU256) exp
   let differentialCases : List (String × Nat × Bool × Nat × Nat) :=
     [ ("random-looking coefficients", k1, false, sigR, k2),
       ("random-looking coefficients/other parity", k1, true, sigR, k2),
@@ -607,6 +611,9 @@ def recoverGroup (st : Tally) : IO Unit := do
   for (name, h, v, r, s) in differentialCases do
     checkAdr st s!"diff recover {name}"
       (secp256k1.recover h.toU256 v r.toU256 s.toU256)
+      (refRecover h.toU256 v r.toU256 s.toU256)
+    checkAdr st s!"diff recoverFast {name}"
+      (secp256k1.recoverFast h.toU256 v r.toU256 s.toU256)
       (refRecover h.toU256 v r.toU256 s.toU256)
 
 end ECOracle

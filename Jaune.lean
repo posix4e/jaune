@@ -15,6 +15,7 @@ import Jaune.Blake2Spec
 import Jaune.EC
 import Jaune.BLSConst
 import Jaune.BN254
+import Jaune.Secp256k1
 import Jaune.BLS
 import Jaune.Fuel
 import Jaune.Machine
