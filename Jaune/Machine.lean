@@ -4879,6 +4879,31 @@ def jumpable (cd : ByteArray) (k : Nat) : Bool :=
     else false
   else false
 
+/-- `jumpable` as it is compiled: one pass forward over the instructions before
+`k`, stepping over each push's data, which ends on `k` exactly when `k` starts
+an instruction.
+
+The backward scan above asks, of every byte in the 32 before `k` that could be a
+push reaching `k`, whether that byte itself starts an instruction, by the same
+scan; on real contract code, where data bytes that look like pushes are common,
+that is exponential, and one mainnet block spent all of its time there.
+`jumpdestOk` below is linear and proved equal, but builds a list as long as the
+code for every jump.
+
+This is `implemented_by`, not `csimp`: nothing proves it equal to `jumpable`.
+What holds it is the conformance fixtures, which jump constantly, and a direct
+comparison with `jumpdestOk` on random code in the tests of the package this
+branch is for. -/
+def jumpableCompiled (cd : ByteArray) (k : Nat) : Bool := Id.run do
+  if k ≥ cd.size || cd[k]! != JumpOp.toUInt8 .jumpdest then return false
+  let mut i := 0
+  while i < k do
+    let b := cd[i]!
+    i := i + (if 0x60 ≤ b && b ≤ 0x7f then b.toNat - 0x5e else 1)
+  return i == k
+
+attribute [implemented_by jumpableCompiled] jumpable
+
 --------------- THE FORWARD INSTRUCTION-START SCAN ---------------
 
 -- `jumpable` keeps its backward `noPushBefore` scan, which is exponential under
