@@ -3582,6 +3582,27 @@ def ceil32 (n : Nat) : Nat :=
   | 0 => n
   | m@(_ + 1) => n + 32 - m
 
+/-- The bytes of a memory cut or filled out with zeros to length `n`: what
+`Array.copyD data (Array.replicate n 0)` is (`Mem.grow_eq_copyD`).
+
+`Mem.write` used to make exactly that, a fresh array of the new length with the
+whole of the old one copied into it, every time a write went past what was held.
+A contract that fills memory a word at a time paid for all of its memory at every
+word; on three mainnet blocks run on a small runtime that was a quarter of all
+the time. When `data` is not longer than `n`, which is every case that arises,
+the zeros are added to `data` itself, which costs what is added. -/
+def Mem.grow (data : Array UInt8) (n : Nat) : Array UInt8 :=
+  if data.size ≤ n then data ++ Array.replicate (n - data.size) 0x00
+  else Array.copyD data (Array.replicate n 0x00)
+
+theorem Mem.grow_eq_copyD (data : Array UInt8) (n : Nat) :
+    Mem.grow data n = Array.copyD data (Array.replicate n 0x00) := by
+  unfold Mem.grow
+  split
+  · rename_i h
+    exact (Array.copyD_replicate data n 0x00 h).symm
+  · rfl
+
 def Mem.write (μ : Mem) (n : ℕ) : Bytes → Mem
   | [] => μ
   | xs@(_ :: _) =>
@@ -3591,13 +3612,11 @@ def Mem.write (μ : Mem) (n : ℕ) : Bytes → Mem
       then
         ⟨Array.writeD μ.data n xs, μ.size⟩
       else
-        let blank : Array UInt8 := Array.replicate (n + xs.length) 0x00
-        ⟨Array.writeD (Array.copyD μ.data blank) n xs, μ.size⟩
+        ⟨Array.writeD (Mem.grow μ.data (n + xs.length)) n xs, μ.size⟩
 
     else
       let newSize := ceil32 (n + xs.length)
-      let blank : Array UInt8 := Array.replicate newSize 0x00
-      ⟨Array.writeD (Array.copyD μ.data blank) n xs, newSize⟩
+      ⟨Array.writeD (Mem.grow μ.data newSize) n xs, newSize⟩
 
 def Mem.extend (μ : Mem) (index size : Nat) : Mem :=
   ⟨μ.data, memExtSize μ.size index size⟩

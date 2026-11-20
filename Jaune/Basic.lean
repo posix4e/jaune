@@ -1548,6 +1548,50 @@ theorem Array.size_copyD {ξ : Type u} (xs ys : Array ξ) :
     | case2 i ys h => rw [Array.copyD.go, dite_eq_right h]
   exact key 0 ys
 
+private theorem Array.copyD.foldl_toList {ξ : Type u} (l : List ξ) :
+    ∀ (a : Array ξ) (k : Nat), k + l.length ≤ a.size →
+      (List.foldl (fun (ysn : Array ξ × Nat) x => (ysn.fst.setIfInBounds ysn.snd x, ysn.snd + 1))
+        (a, k) l).fst.toList = a.toList.take k ++ l ++ a.toList.drop (k + l.length) := by
+  induction l with
+  | nil => intro a k _; simp
+  | cons x l ih =>
+    intro a k h
+    simp only [List.length_cons] at h
+    have hk : k < a.toList.length := by simp; omega
+    simp only [List.foldl_cons]
+    rw [ih (a.setIfInBounds k x) (k + 1) (by simp; omega)]
+    simp only [Array.toList_setIfInBounds, List.length_cons]
+    have hset : a.toList.set k x = a.toList.take k ++ x :: a.toList.drop (k + 1) := by
+      rw [List.set_eq_take_append_cons_drop, ite_eq_left hk]
+    have hlen : (a.toList.take k).length = k := by
+      rw [List.length_take]; omega
+    rw [hset]
+    have ht : (a.toList.take k ++ x :: a.toList.drop (k + 1)).take (k + 1) =
+        a.toList.take k ++ [x] := by
+      rw [List.take_append, hlen]
+      simp
+    have hd : (a.toList.take k ++ x :: a.toList.drop (k + 1)).drop (k + 1 + l.length) =
+        a.toList.drop (k + (l.length + 1)) := by
+      rw [List.drop_append, hlen]
+      have e1 : k + 1 + l.length - k = l.length + 1 := by omega
+      have e2 : (a.toList.take k).drop (k + 1 + l.length) = [] := by
+        apply List.drop_eq_nil_of_le; rw [hlen]; omega
+      rw [e1, e2, List.drop_succ_cons, List.drop_drop]
+      simp only [List.nil_append]
+      congr 1
+      omega
+    rw [ht, hd]
+    simp
+
+/-- Copying `xs` over the front of `n` copies of `z`, when `xs` is no longer than
+that, is `xs` with copies of `z` added to make `n`. -/
+theorem Array.copyD_replicate {ξ : Type u} (xs : Array ξ) (n : Nat) (z : ξ) (h : xs.size ≤ n) :
+    Array.copyD xs (Array.replicate n z) = xs ++ Array.replicate (n - xs.size) z := by
+  apply Array.toList_inj.mp
+  rw [Array.copyD_eq_foldl, ← Array.foldl_toList,
+    Array.copyD.foldl_toList xs.toList _ 0 (by simpa using h)]
+  simp
+
 def ByteArray.sliceD (xs : ByteArray) : Nat → Nat → UInt8 → Bytes
   | _, 0, _ => []
   | m, n + 1, d =>
