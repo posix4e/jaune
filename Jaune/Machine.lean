@@ -3098,6 +3098,15 @@ def Meta.addAccessedStorageKey (view : Meta) (a : Address) (k : U256) : Meta :=
 def addAccessedStorageKey (devm : Devm) (a : Address) (k : U256) : Devm :=
   liftMachMetaPure (fun mach view => (mach, view.addAccessedStorageKey a k)) devm
 
+/-- Whether a frame records the accounts and slots it reads. Upstream records
+them only under rules that carry a block-level access list, which is where the
+protocol needs them. This fork records them under every rule set, because a
+stateless caller needs them under every rule set: executing against a state
+known only in part is sound only if every read can be checked to have fallen
+in the known part. The read sets are not observable by execution, so nothing
+a frame computes changes. -/
+def ForkRules.recordsReads (_ : ForkRules) : Bool := true
+
 /-- EIP-7928: record an account read (`state_tracker.get_account_optional`
 and every accessor built on it). -/
 def Meta.readAccount (view : Meta) (a : Address) : Meta :=
@@ -3117,12 +3126,12 @@ def Devm.balReadAccount (rules : ForkRules) (a : Address) (devm : Devm) : Devm :
   -- The switch sits inside `setMeta` so that `mach` and `world` are preserved
   -- *definitionally* in both branches: every existing proof that reads through
   -- a meta-only update by `rfl` keeps doing so.
-  devm.setMeta (if rules.blockAccessListRules.isSome then devm.meta.readAccount a else devm.meta)
+  devm.setMeta (if rules.recordsReads then devm.meta.readAccount a else devm.meta)
 
 /-- The storage-read twin of `Devm.balReadAccount`. -/
 def Devm.balReadStorage (rules : ForkRules) (a : Address) (k : U256) (devm : Devm) :
     Devm :=
-  devm.setMeta (if rules.blockAccessListRules.isSome then devm.meta.readStorage a k else devm.meta)
+  devm.setMeta (if rules.recordsReads then devm.meta.readStorage a k else devm.meta)
 
 -- The recorders touch `meta` and nothing else; every measure, machine field
 -- and world projection sees through them, and under `bal = none` they vanish.
@@ -3173,9 +3182,6 @@ def Devm.balReadStorage (rules : ForkRules) (a : Address) (k : U256) (devm : Dev
     (devm : Devm) :
     (devm.balReadAccount rules a).transientStorage = devm.transientStorage := by
   rfl
-theorem Devm.balReadAccount_none {rules : ForkRules} (h : rules.blockAccessListRules = none) (a : Address)
-    (devm : Devm) : devm.balReadAccount rules a = devm := by
-  unfold Devm.balReadAccount; simp [h, Devm.setMeta]
 
 @[simp] theorem Devm.balReadStorage_mach (rules : ForkRules) (a : Address) (k : U256)
     (devm : Devm) : (devm.balReadStorage rules a k).mach = devm.mach := by
@@ -3221,9 +3227,6 @@ theorem Devm.balReadAccount_none {rules : ForkRules} (h : rules.blockAccessListR
     (k : U256) (devm : Devm) :
     (devm.balReadStorage rules a k).transientStorage = devm.transientStorage := by
   rfl
-theorem Devm.balReadStorage_none {rules : ForkRules} (h : rules.blockAccessListRules = none) (a : Address)
-    (k : U256) (devm : Devm) : devm.balReadStorage rules a k = devm := by
-  unfold Devm.balReadStorage; simp [h, Devm.setMeta]
 
 def addAccountToDelete (devm : Devm) (a : Address) : Devm :=
   devm.withAccountsToDelete (devm.accountsToDelete.insert a)
@@ -4190,7 +4193,7 @@ def PlainOp.balanceCore (rules : ForkRules) (world : World) (mach : Mach)
     | .ok (_, mach'') =>
       -- `environment.py` `balance`: `charge_gas` then `get_account(address)`;
       -- the read is recorded after the charge and before the push (EIP-7928).
-      let view'' := if rules.blockAccessListRules.isSome then view'.readAccount a else view'
+      let view'' := if rules.recordsReads then view'.readAccount a else view'
       match Mach.push (world.state.get a).balance mach'' with
       | .error (err, mach''') => .error (err, (mach''', view''))
       | .ok (_, mach''') => .ok ((), (mach''', view''))
@@ -7746,7 +7749,7 @@ theorem PlainOp.runCore_worldFrame (pc : Nat) (sevm : Sevm) (devm : Devm)
     split <;> (try split) <;>
       exact Except.WorldFrameOn.bind
         (liftMachExecution_worldFrame (he.keep rfl rfl rfl))
-        fun d hd => (Devm.balReadAccount_worldFrame hd).keep rfl rfl rfl
+        fun d hd => (Devm.balReadAccount_worldFrame (rules := sevm.benvStat.rules) hd).keep rfl rfl rfl
   case returndatacopy =>
     refine Except.WorldFrameOn.bind (liftMach_worldFrameOn h) fun a ha => ?_
     refine Except.WorldFrameOn.bind (liftMach_worldFrameOn ha) fun b hb => ?_

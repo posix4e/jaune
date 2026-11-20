@@ -859,6 +859,13 @@ structure BlockAccessListBuilder : Type where
   indexStartAccounts : Std.TreeMap Nat (Std.TreeMap Address BlockAccessListIndexStartAccount compare) compare := .empty
   indexStartStorage :
     Std.TreeMap Nat (Std.TreeMap Address (Std.TreeMap U256 U256 compare) compare) compare := .empty
+  /-- Every account read while the block ran, under rules that carry no
+  block-level access list, where nothing else here is filled in. For a caller
+  that executed against a state known only in part and has to check that every
+  read fell in the known part. -/
+  readAccounts : AdrSet := .emptyWithCapacity
+  /-- Every slot read or written, under the same rules. -/
+  readSlots : KeySet := .emptyWithCapacity
 
 namespace BlockAccessListAccount
 
@@ -934,6 +941,14 @@ private def startStorage (b : BlockAccessListBuilder) (idx : Nat) (address : Add
     let atAddress := atAddress.insert slot value
     let atIndex := atIndex.insert address atAddress
     ({b with indexStartStorage := b.indexStartStorage.insert idx atIndex}, value)
+
+/-- What one transaction or system operation read, added to the block's read
+sets: the whole of what is kept under rules with no block-level access list. -/
+def noteReads (b : BlockAccessListBuilder) (accountReads : List Address)
+    (storageReads storageWrites : List (Address × U256)) : BlockAccessListBuilder :=
+  {b with
+    readAccounts := accountReads.foldl (fun set a => set.insert a) b.readAccounts
+    readSlots := (storageReads ++ storageWrites).foldl (fun set key => set.insert key) b.readSlots}
 
 /-- `update_builder_from_tx`: the incorporated state's writes against values
 captured at the start of `idx`, then the merge of the read sets. An address or
@@ -1923,7 +1938,9 @@ def processTransaction
   -- the sender (`check_transaction`, `update_sender_state`, the refund) and
   -- the coinbase (`disburse_gas_fees` credits it even a zero fee).
   let bal := match benv.stat.rules.blockAccessListRules with
-    | none => bout.blockAccessListBuilder
+    | none => bout.blockAccessListBuilder.noteReads
+        (sender :: benv.stat.coinbase :: txOutput.accountReads.toList)
+        txOutput.storageReads.toList storageWrites.toList
     | some _ => bout.blockAccessListBuilder.incorporate (index + 1) benv.state state
         (sender :: benv.stat.coinbase :: txOutput.accountReads.toList)
         txOutput.storageReads.toList storageWrites.toList
@@ -2516,7 +2533,8 @@ def runRequestContracts (idx : Nat) :
     -- EIP-7928: each checked call incorporates its own writes and reads at
     -- the post-execution index; `create_evm` read the contract's account.
     let bal := match benv.stat.rules.blockAccessListRules with
-      | none => bal
+      | none => bal.noteReads
+          (address :: output.accountReads.toList) output.storageReads.toList output.storageWrites.toList
       | some _ => bal.incorporate idx benv.state state
           (address :: output.accountReads.toList) output.storageReads.toList output.storageWrites.toList
     runRequestContracts idx rest (benv.withState state) acc bal
@@ -2612,7 +2630,7 @@ def BlockAccessListBuilder.incorporateSystem (bal : BlockAccessListBuilder) (rul
     (storageReads storageWrites : List (Address × U256)) :
     BlockAccessListBuilder :=
   match rules.blockAccessListRules with
-  | none => bal
+  | none => bal.noteReads accountReads storageReads storageWrites
   | some _ => bal.incorporate idx pre post accountReads storageReads storageWrites
 
 /-- `validate_block_access_list_gas_limit`, inside `apply_body` before any
