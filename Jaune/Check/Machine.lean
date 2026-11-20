@@ -461,6 +461,36 @@ example :
 #guard (List.range 3).filter (jumpable ⟨#[0xE7, 0x5B, 0x5B]⟩) = [1, 2]
 #guard (List.range 3).filter (jumpable ⟨#[0x60, 0x5B, 0x5B]⟩) = [2]
 
+-- The compiled jump-destination check (`jumpableCompiled`, which is what `jumpable`
+-- runs as) against the proved forward scan, at every position of codes made to be
+-- awkward for it: nothing but pushes of one length, a long push every 32 bytes with
+-- `JUMPDEST`s between, `JUMPDEST`s inside and just after push data at every distance,
+-- and bytes from a generator weighted towards pushes and `JUMPDEST`.
+private def jumpChecksAgree (code : ByteArray) : Bool :=
+  (List.range (code.size + 2)).all fun k => jumpableCompiled code k == jumpdestOk code k
+
+private def awkwardCode (seed : Nat) (size : Nat) : ByteArray := Id.run do
+  let mut out := ByteArray.empty
+  let mut x := seed
+  for _ in [0 : size] do
+    x := (x * 6364136223846793005 + 1442695040888963407) % 2 ^ 64
+    let r := (x / 2 ^ 33) % 16
+    let b : UInt8 :=
+      if r < 5 then 0x5B
+      else if r < 11 then (0x60 + (x / 2 ^ 40) % 32).toUInt8
+      else ((x / 2 ^ 40) % 256).toUInt8
+    out := out.push b
+  return out
+
+#guard (List.range 33).all fun n =>
+  jumpChecksAgree ⟨Array.replicate 300 (0x5F + n).toUInt8⟩
+#guard (List.range 33).all fun n =>
+  jumpChecksAgree ⟨(Array.range 400).map fun i => if i % 32 = n then 0x7F else 0x5B⟩
+#guard (List.range 33).all fun n =>
+  jumpChecksAgree ⟨(Array.range 400).map fun i =>
+    if i % (n + 2) = 0 then (0x5F + n).toUInt8 else 0x5B⟩
+#guard (List.range 40).all fun seed => jumpChecksAgree (awkwardCode (seed + 1) 700)
+
 /-! ### Site table: the account-access sites, at both metering shapes
 
 G3 of `jaune-amsterdam-metering-v1`. For each site the interpreter reads a

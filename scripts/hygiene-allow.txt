@@ -6,7 +6,8 @@
 # neither a stray dbg_trace or sorry nor a new axiom, opaque, @[extern],
 # @[implemented_by], partial def, unsafe or native_decide can enter unnoticed.
 #
-# This file carries EXACTLY ONE entry, and that is the point: TRUSTED.md's
+# Upstream this file carries EXACTLY ONE entry (this branch adds a second, the
+# last below, which is unproved and says so), and that is the point: TRUSTED.md's
 # account of what Jaune does not use is a gate rather than a fact about a
 # moment. An entry here is a hole in that account, so adding one is a decision
 # to be argued for, not a way to make the gate quiet. If prose trips the gate,
@@ -40,3 +41,23 @@
 # SECOND `@[csimp]` anywhere under the scanned source fails the gate and has to
 # be argued for here.
 Jaune/Implementation/CachedDriver.lean @[csimp] private theorem execFueled_eq_cached :
+
+# `attribute [implemented_by jumpableCompiled] jumpable` — on this branch only.
+#
+# WHAT IT CARRIES. Nothing proved. `jumpable` is compiled as `jumpableCompiled`, and
+# no theorem says the two are equal. This is the hole in TRUSTED.md's account that
+# the header of this file warns about, and it is listed so that the gate keeps
+# saying so rather than being quiet.
+#
+# WHY IT IS HERE. `jumpable`'s own definition is exponential on real contract code
+# (one mainnet block did not finish in ten minutes), and the proved linear form
+# `jumpdestOk` builds a list as long as the code for every jump. The branch exists
+# to run mainnet blocks.
+#
+# WHAT HOLDS IT INSTEAD. The fixture suites; `#guard`s in `Jaune/Check/Machine.lean`
+# comparing `jumpableCompiled` with `jumpdestOk` at every position of codes made to
+# be awkward for it; the same comparison on random code in the consumer's tests.
+#
+# WHAT WOULD REMOVE IT. `jumpableCompiled` written without `while` (a loop the
+# kernel cannot unfold) and a proof `jumpable = jumpableCompiled`, as a `csimp`.
+Jaune/Machine.lean attribute [implemented_by jumpableCompiled] jumpable

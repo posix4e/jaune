@@ -4879,9 +4879,28 @@ def jumpable (cd : ByteArray) (k : Nat) : Bool :=
     else false
   else false
 
-/-- `jumpable` as it is compiled: one pass forward over the instructions before
-`k`, stepping over each push's data, which ends on `k` exactly when `k` starts
-an instruction.
+/-- Whether position `j` starts an instruction whatever came before it: none of
+the 32 bytes before `j` is a push long enough to reach `j`. `PUSHn` is the byte
+`0x5f + n` and its data ends `n` bytes after it, so the byte `d` before `j`
+reaches `j` when it is `0x5f + d` or more. A position inside push data always has
+such a byte before it, namely the push it belongs to. -/
+def certainInstructionStart (cd : ByteArray) (j : Nat) : Bool := Id.run do
+  let mut d := 1
+  while d ≤ 32 && d ≤ j do
+    let b := cd[j - d]!
+    if 0x5f + d.toUInt8 ≤ b && b ≤ 0x7f then return false
+    d := d + 1
+  return true
+
+/-- `jumpable` as it is compiled. `k` is a jump destination when it holds
+`JUMPDEST` and starts an instruction. Whether it starts one is found by going back
+from `k` to a position that certainly starts one (`certainInstructionStart`;
+position 0 always does) and then forward over the instructions from there,
+stepping over each push's data, which ends on `k` exactly when `k` starts an
+instruction. On real code the first position tried, `k` itself, is nearly always
+certain, so a jump costs 32 bytes read and not a pass over the contract from its
+start; after 64 positions that are not certain it goes back to 0 and makes that
+pass, which is what the worst case costs.
 
 The backward scan above asks, of every byte in the 32 before `k` that could be a
 push reaching `k`, whether that byte itself starts an instruction, by the same
@@ -4891,12 +4910,21 @@ that is exponential, and one mainnet block spent all of its time there.
 code for every jump.
 
 This is `implemented_by`, not `csimp`: nothing proves it equal to `jumpable`.
-What holds it is the conformance fixtures, which jump constantly, and a direct
-comparison with `jumpdestOk` on random code in the tests of the package this
-branch is for. -/
+What holds it is the conformance fixtures, which jump constantly, the `#guard`s in
+`Jaune/Check/Machine.lean` that compare it with `jumpdestOk` at every position of
+codes made to be awkward, and the same comparison on random code in the tests of
+the package this branch is for. -/
 def jumpableCompiled (cd : ByteArray) (k : Nat) : Bool := Id.run do
   if k ≥ cd.size || cd[k]! != JumpOp.toUInt8 .jumpdest then return false
-  let mut i := 0
+  let mut j := k
+  let mut tried := 0
+  while j > 0 && !certainInstructionStart cd j do
+    if tried ≥ 64 then
+      j := 0
+    else
+      j := j - 1
+      tried := tried + 1
+  let mut i := j
   while i < k do
     let b := cd[i]!
     i := i + (if 0x60 ≤ b && b ≤ 0x7f then b.toNat - 0x5e else 1)
