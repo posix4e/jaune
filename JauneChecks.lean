@@ -5,6 +5,7 @@
 -- reached by the default build through this root (goal
 -- `jaune-shape-and-names-v1`, unit W0; classification in `scripts/layering.json`).
 import Jaune.BLSGuards
+import Jaune.BN254Guards
 import Jaune.Check.BLS
 import Jaune.Check.Basic
 import Jaune.Check.Blake2Spec

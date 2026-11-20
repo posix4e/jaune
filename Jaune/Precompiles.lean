@@ -1,4 +1,5 @@
 import Jaune.Machine
+import Jaune.BN254
 
 namespace Jaune
 
@@ -956,11 +957,15 @@ def executePairingCheckInner (data : Bytes) (cost : Nat) :
         Bytes.toExceptBn254G2 (data.slice! (i * 192 + 64) 128)
     if p * altBn128CurveOrder ≠ ⟨0, 0⟩ then throw ⟨.halt (.outOfGas .none), cost⟩
     if q * altBn128CurveOrder ≠ ⟨0, 0⟩ then throw ⟨.halt (.outOfGas .none), cost⟩
-    let pairResult ← match pairing q p with
+    -- The Miller value of each pair, and one final exponentiation for all of them
+    -- (`Jaune/BN254.lean`): the product of the pairings, since `x ↦ x^e` is
+    -- multiplicative.
+    let pairResult ← match bn254Pairing q p (finalExp := false) with
                      | some v => pure v
                      | none => throw ⟨.crypto (.value .none), cost⟩
     result := result * pairResult
-  let output : Bytes := if result = 1 then (1 : Nat).toU256.toBytes else (0 : Nat).toU256.toBytes
+  let output : Bytes :=
+    if bn254FinalExpFast result = 1 then (1 : Nat).toU256.toBytes else (0 : Nat).toU256.toBytes
   pure (cost, output)
 
 def executePairingCheck (evm : Evm) : PrecompileResult :=

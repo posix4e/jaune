@@ -23,6 +23,8 @@
   "Jaune.BLS": "specification",
   "Jaune.BLSConst": "specification",
   "Jaune.BLSGuards": "check",
+  "Jaune.BN254": "specification",
+  "Jaune.BN254Guards": "check",
   "Jaune.Basic": "specification",
   "Jaune.Blake2Spec": "specification",
   "Jaune.ChainStore": "adapter",

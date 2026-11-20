@@ -5,6 +5,7 @@ import Jaune.FixtureException
 import Jaune.ChainStore
 import Jaune.FixtureTransition
 import Jaune.BLSGuards
+import Jaune.BN254Guards
 import Jaune.T8n
 import Jaune.Adapter.IO
 
