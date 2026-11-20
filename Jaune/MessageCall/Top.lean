@@ -48,10 +48,23 @@ def Frame.Result.refundCounter : Frame.Result → Except EvmError Nat
       (EvmError.internal (.invariant (.text "refund counter is negative")))
   | _ => .ok 0
 
+/-- The accounts read in preparing a top-level message, before a frame exists to record them: the
+account the message is sent to; the account whose code it runs, which is another one when the first
+delegates; and the account each EIP-7702 authorization is signed by, under the three conditions
+`setDelegationStep` reads it (a chain id that applies, a nonce that can be raised, a signature that
+recovers). The signatures are recovered a second time here, to leave `Msg` and that step as they are. -/
+def Message.preparationReads (m : Message) : List Address :=
+  let authorities := m.context.tx.auths.filterMap fun auth =>
+    if auth.chainId != m.context.block.chainId.toU256 && auth.chainId != 0 then none
+    else if auth.nonce = UInt64.max then none
+    else (recoverAuthority auth).toOption
+  m.context.recipient :: (m.codeAddress.toList ++ authorities)
+
 /-- What a top-level frame hands the transaction under rules without state gas. A call adds its
 authorization refund; a failed frame keeps no log, deletion or touch. The read sets and the explicit
 writes are handed over in every outcome, as under state gas: a caller that executed against a state known
-only in part has to see what a failed transaction read as much as what a successful one did. -/
+only in part has to see what a failed transaction read as much as what a successful one did, and what
+was read before the frame began. -/
 def Frame.output (f : Frame) (authorizationRefund : Nat) (r : Frame.Result) :
     Except EvmError (Jaune.State × MsgCallOutput) := do
   let refund ← r.refundCounter
@@ -60,7 +73,7 @@ def Frame.output (f : Frame) (authorizationRefund : Nat) (r : Frame.Result) :
       (substate.logs, substate.selfDestructs, substate.touchedAccounts)
     | _ => ([], .emptyWithCapacity, .emptyWithCapacity)
   .ok ⟨(f.worldAfter r).state, {
-    accountReads := r.trail.accountReads
+    accountReads := f.message.preparationReads.foldl (fun set a => set.insert a) r.trail.accountReads
     storageReads := r.trail.storageReads
     storageWrites := (f.worldAfter r).storageWrites
     gasLeft := r.gasLeft, refundCounter := authorizationRefund + refund,
