@@ -49,7 +49,9 @@ def Frame.Result.refundCounter : Frame.Result → Except EvmError Nat
   | _ => .ok 0
 
 /-- What a top-level frame hands the transaction under rules without state gas. A call adds its
-authorization refund; a failed frame keeps no log, deletion or touch. -/
+authorization refund; a failed frame keeps no log, deletion or touch. The read sets and the explicit
+writes are handed over in every outcome, as under state gas: a caller that executed against a state known
+only in part has to see what a failed transaction read as much as what a successful one did. -/
 def Frame.output (f : Frame) (authorizationRefund : Nat) (r : Frame.Result) :
     Except EvmError (Jaune.State × MsgCallOutput) := do
   let refund ← r.refundCounter
@@ -58,6 +60,9 @@ def Frame.output (f : Frame) (authorizationRefund : Nat) (r : Frame.Result) :
       (substate.logs, substate.selfDestructs, substate.touchedAccounts)
     | _ => ([], .emptyWithCapacity, .emptyWithCapacity)
   .ok ⟨(f.worldAfter r).state, {
+    accountReads := r.trail.accountReads
+    storageReads := r.trail.storageReads
+    storageWrites := (f.worldAfter r).storageWrites
     gasLeft := r.gasLeft, refundCounter := authorizationRefund + refund,
     logs, accountsToDelete, error := r.error?, returnData := r.output, touchedAccounts }⟩
 

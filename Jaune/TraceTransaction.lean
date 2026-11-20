@@ -211,7 +211,9 @@ def finishTransaction (prepared : PreparedTransaction) (tx : Transaction) (index
   -- the sender (`check_transaction`, `update_sender_state`, the refund) and
   -- the coinbase (`disburse_gas_fees` credits it even a zero fee).
   let bal := match benv.stat.rules.blockAccessListRules with
-    | none => bout.blockAccessListBuilder
+    | none => bout.blockAccessListBuilder.noteReads
+        (sender :: benv.stat.coinbase :: txOutput.accountReads.toList)
+        txOutput.storageReads.toList storageWrites.toList
     | some _ => bout.blockAccessListBuilder.incorporate (index + 1) benv.state state
         (sender :: benv.stat.coinbase :: txOutput.accountReads.toList)
         txOutput.storageReads.toList storageWrites.toList
