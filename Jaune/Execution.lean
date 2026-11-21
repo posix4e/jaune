@@ -92,6 +92,33 @@ def ForkRules.accessDelegation (rules : ForkRules) (devm : Devm) (adr : Address)
   if rules.delegationEnabled then rules.gas.accessDelegation devm adr
   else ⟨false, adr, devm.state.getCode adr, 0, devm⟩
 
+/-- `ForkRules.accessDelegation` as this branch compiles it: the same five answers, with two accounts
+recorded as read in the machine it hands back, the one looked at and the one whose code is taken for it.
+
+Before Amsterdam the four call instructions record nothing of the account they call: upstream records
+reads only where EIP-7928 has a block publish them. A caller that runs a block on a state known only in
+part (a stateless client working from a witness) needs every read recorded, or an account the witness
+leaves out is taken to be empty and the block runs on a state that never was. Found on a block of mainnet
+on 2026-11-21: with one called contract left out of the witness, a valid block was answered invalid.
+
+All four instructions come through `accessDelegation` to price the call, before anything can fail on what
+was read, so recording here covers them and their cached twins.
+
+**This is `implemented_by`, it is not proved, and it is not equal to the definition.** The definition
+hands back the machine `accessDelegation` always did; this hands back one whose record of reads holds two
+more addresses. Nothing else differs. Writing the two reads into the definitions of the four instructions,
+as the Amsterdam arms have them, is the honest form, and it needs the gas, state-gas and canonicity proofs
+about those instructions carried across; that is owed and not done. -/
+def ForkRules.accessDelegationRecorded (rules : ForkRules) (devm : Devm) (adr : Address) :
+    Bool × Address × ByteArray × Nat × Devm :=
+  let answer : Bool × Address × ByteArray × Nat × Devm :=
+    if rules.delegationEnabled then rules.gas.accessDelegation devm adr
+    else ⟨false, adr, devm.state.getCode adr, 0, devm⟩
+  ⟨answer.1, answer.2.1, answer.2.2.1, answer.2.2.2.1,
+    (answer.2.2.2.2.balReadAccount rules adr).balReadAccount rules answer.2.1⟩
+
+attribute [implemented_by ForkRules.accessDelegationRecorded] ForkRules.accessDelegation
+
 /-- Fork-aware price discovery; warming and code access remain separate. -/
 def ForkRules.delegationCost (rules : ForkRules) (devm : Devm) (adr : Address) : Bool × Address × Nat :=
   if rules.delegationEnabled then rules.gas.delegationCost devm adr else ⟨false, adr, 0⟩

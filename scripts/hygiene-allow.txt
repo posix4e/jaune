@@ -6,8 +6,9 @@
 # neither a stray dbg_trace or sorry nor a new axiom, opaque, @[extern],
 # @[implemented_by], partial def, unsafe or native_decide can enter unnoticed.
 #
-# Upstream this file carries EXACTLY ONE entry (this branch adds five: one that is
-# unproved and says so, and four proved ones), and that is the point: TRUSTED.md's
+# Upstream this file carries EXACTLY ONE entry (this branch adds six: two that are
+# unproved and say so, one of them not even equal to its definition, and four proved
+# ones), and that is the point: TRUSTED.md's
 # account of what Jaune does not use is a gate rather than a fact about a
 # moment. An entry here is a hole in that account, so adding one is a decision
 # to be argued for, not a way to make the gate quiet. If prose trips the gate,
@@ -83,3 +84,26 @@ Jaune/Machine.lean @[csimp] theorem liftMach_eq_compiled : @liftMach = @liftMach
 Jaune/Machine.lean @[csimp] theorem liftMachPure_eq_compiled : @liftMachPure = @liftMachPureCompiled := by
 Jaune/Machine.lean @[csimp] theorem liftMachMeta_eq_compiled : @liftMachMeta = @liftMachMetaCompiled := by
 Jaune/Machine.lean @[csimp] theorem liftMachMetaPure_eq_compiled :
+
+# `attribute [implemented_by ForkRules.accessDelegationRecorded] ForkRules.accessDelegation`
+# — on this branch only, unproved, and NOT EQUAL to the definition.
+#
+# WHAT IT CARRIES. Nothing proved, and nothing that could be: the compiled form hands back
+# a machine whose record of reads holds two more addresses than the definition's does (the
+# account a call instruction looks at, and the account whose code runs for it). In every
+# other field the two agree, which is not proved either.
+#
+# WHY IT IS HERE. Before Amsterdam the call instructions record no read of the account
+# they call. A consumer that runs blocks on a state known only in part relies on the
+# record of reads to notice what it was not given; without these two a called account
+# left out of a witness is taken for empty and a valid block comes out invalid, which is
+# what happened on a block of mainnet. The compiled form closes that for the consumer
+# without touching the definitions the proofs are about.
+#
+# WHAT WOULD REMOVE IT. The two reads written into the four pre-Amsterdam call arms of
+# `MessageOp.step` and their cached twins, as the Amsterdam arms have them, with the
+# gas-decrease, state-gas and canonicity proofs about those arms carried across. That
+# was started and is not finished: the canonicity proofs take one line each, the four
+# `step_*_gasDecreasing_legacy` proofs and the state-gas lemmas after them need the
+# recorded machine named and its projections rewritten.
+Jaune/Execution.lean attribute [implemented_by ForkRules.accessDelegationRecorded] ForkRules.accessDelegation
