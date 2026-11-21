@@ -2198,9 +2198,50 @@ def liftMach (core : Mach → Footprint.Outcome Mach α) (devm : Devm) :
     Except (EvmError × Devm) (α × Devm) :=
   Footprint.liftOutcome Devm.mach Devm.setMach core devm
 
+/-! The lifts as they are compiled.
+
+Each lift above reads a part of the `Devm`, runs a core on it, and writes the result
+back into the same `Devm`. Compiled as written, the `Devm` is still held while the core
+runs, because it is needed again afterwards, so the part the core is given has two
+owners and nothing in it can be changed where it lies: every write to EVM memory copied
+the whole of memory, and the copy it replaced was then walked and freed. On three
+mainnet blocks run on a small runtime that copying and freeing was two fifths of all the
+time.
+
+The forms below take the `Devm` apart first, so that the core is the only owner of what
+it is given, and build the result from the parts. Each is proved equal to the lift it
+stands in for, and `csimp` makes compiled code use it; the definitions the proofs are
+about are untouched. -/
+
+/-- `liftMach`, with the `Devm` taken apart before the core runs. -/
+def liftMachCompiled {α : Type} (core : Mach → Footprint.Outcome Mach α) (devm : Devm) :
+    Except (EvmError × Devm) (α × Devm) :=
+  match devm with
+  | ⟨mach, «meta», world⟩ =>
+    match core mach with
+    | .error (err, view) => .error (err, ⟨view, «meta», world⟩)
+    | .ok (value, view) => .ok (value, ⟨view, «meta», world⟩)
+
+@[csimp] theorem liftMach_eq_compiled : @liftMach = @liftMachCompiled := by
+  funext α core devm
+  cases devm
+  simp only [liftMach, liftMachCompiled, Footprint.liftOutcome, Devm.setMach]
+  generalize core _ = r
+  rcases r with ⟨err, view⟩ | ⟨value, view⟩ <;> rfl
+
 /-- Lift a pure Mach-only update. -/
 def liftMachPure (core : Mach → Mach) (devm : Devm) : Devm :=
   devm.setMach (core devm.mach)
+
+/-- `liftMachPure`, with the `Devm` taken apart before the core runs. -/
+def liftMachPureCompiled (core : Mach → Mach) (devm : Devm) : Devm :=
+  match devm with
+  | ⟨mach, «meta», world⟩ => ⟨core mach, «meta», world⟩
+
+@[csimp] theorem liftMachPure_eq_compiled : @liftMachPure = @liftMachPureCompiled := by
+  funext core devm
+  cases devm
+  rfl
 
 /-- Lift a normalized Mach-only core to `Execution`. -/
 def liftMachExecution (core : Mach → Footprint.Outcome Mach Unit)
@@ -2216,10 +2257,40 @@ def liftMachMeta
     (fun d view => { d with mach := view.1, «meta» := view.2 })
     (fun view => core view.1 view.2) devm
 
+/-- `liftMachMeta`, with the `Devm` taken apart before the core runs. -/
+def liftMachMetaCompiled {α : Type}
+    (core : Mach → Meta → Footprint.Outcome (Mach × Meta) α)
+    (devm : Devm) : Except (EvmError × Devm) (α × Devm) :=
+  match devm with
+  | ⟨mach, «meta», world⟩ =>
+    match core mach «meta» with
+    | .error (err, view) => .error (err, ⟨view.1, view.2, world⟩)
+    | .ok (value, view) => .ok (value, ⟨view.1, view.2, world⟩)
+
+@[csimp] theorem liftMachMeta_eq_compiled : @liftMachMeta = @liftMachMetaCompiled := by
+  funext α core devm
+  cases devm
+  simp only [liftMachMeta, liftMachMetaCompiled, Footprint.liftOutcome]
+  generalize core _ _ = r
+  rcases r with ⟨err, view⟩ | ⟨value, view⟩ <;> rfl
+
 /-- Lift a pure Mach+Meta update. -/
 def liftMachMetaPure (core : Mach → Meta → Mach × Meta) (devm : Devm) : Devm :=
   let view := core devm.mach devm.meta
   { devm with mach := view.1, «meta» := view.2 }
+
+/-- `liftMachMetaPure`, with the `Devm` taken apart before the core runs. -/
+def liftMachMetaPureCompiled (core : Mach → Meta → Mach × Meta) (devm : Devm) : Devm :=
+  match devm with
+  | ⟨mach, «meta», world⟩ =>
+    let view := core mach «meta»
+    ⟨view.1, view.2, world⟩
+
+@[csimp] theorem liftMachMetaPure_eq_compiled :
+    @liftMachMetaPure = @liftMachMetaPureCompiled := by
+  funext core devm
+  cases devm
+  rfl
 
 /-- Lift a normalized Mach+Meta core to `Execution`. -/
 def liftMachMetaExecution

@@ -362,41 +362,65 @@ private theorem MessageOp.stepCached_fst
       all_goals rfl
     · rfl
 
-private def NextOp.stepCached
-    (evm : Evm) (cache : Option CalldataCache) (n : NextOp) :
+/-! The step, given the machine in its three parts.
+
+`Evm.step` takes the machine as one record and reads the parts out of it as it goes.
+Compiled, that record is only lent to the step, so it goes on holding the dynamic state
+while an instruction runs on it: the state has two owners, nothing in it can be changed
+where it lies, and every write to memory copied the whole of memory, with the old copy
+walked and freed when the step returned. Here the driver takes the record apart, the
+step is given the parts, and the dynamic state it is given is the only reference to it.
+Each form is proved to give the step of the record made of the same parts. -/
+
+/-- `NextOp.step` of the machine with these parts, with the calldata slice of the four
+legacy call arms taken through the cache. The stack instructions of EIP-8024 are rare
+and take the definition itself. -/
+private def NextOp.stepParts
+    (pc0 : Nat) (sta : Sevm) (dyna : Devm) (cache : Option CalldataCache) (n : NextOp) :
     Step × Option CalldataCache :=
-  let pc := evm.pc + n.size
+  let pc := pc0 + n.size
   match n with
   | .message x =>
-    let result := MessageOp.stepCached evm.sta evm.dyna cache x
+    let result := MessageOp.stepCached sta dyna cache x
     (MessageOp.Outcome.toStep pc result.1, result.2)
-  | _ => (NextOp.step evm n, cache)
+  | .plain r => (Step.ofExecution pc (PlainOp.runCore pc0 dyna sta r), cache)
+  | .push xs k =>
+    if xs = [] && !sta.benvStat.rules.opcodes.push0 then
+      (Step.ofExecution pc (.error ⟨.halt (.invalidOpcode .none), dyna⟩), cache)
+    else
+      let cost := if xs = [] then Gas.base else Gas.veryLow
+      (Step.ofExecution pc (do
+        let devm ← chargeGas cost dyna
+        devm.push xs.toU256), cache)
+  | n => (NextOp.step ⟨pc0, sta, dyna⟩ n, cache)
 
-private theorem NextOp.stepCached_fst
-    (evm : Evm) (cache : Option CalldataCache) (n : NextOp) :
-    (NextOp.stepCached evm cache n).1 = NextOp.step evm n := by
+private theorem NextOp.stepParts_fst
+    (pc0 : Nat) (sta : Sevm) (dyna : Devm) (cache : Option CalldataCache) (n : NextOp) :
+    (NextOp.stepParts pc0 sta dyna cache n).1 = NextOp.step ⟨pc0, sta, dyna⟩ n := by
   cases n <;>
-    simp [NextOp.stepCached, NextOp.step, MessageOp.stepCached_fst]
+    simp [NextOp.stepParts, NextOp.step, MessageOp.stepCached_fst, PlainOp.run]
+  split <;> rfl
 
-private def Evm.stepCached
-    (evm : Evm) (cache : Option CalldataCache) :
+/-- `Evm.step` of the machine with these parts. -/
+private def Evm.stepParts
+    (pc0 : Nat) (sta : Sevm) (dyna : Devm) (cache : Option CalldataCache) :
     Step × Option CalldataCache :=
-  match evm.getInst with
+  match ByteArray.getOp sta.code pc0 with
   | .none =>
-    (.halt (.error ⟨.halt (.invalidOpcode .none), evm.dyna⟩), cache)
-  | .some (.next n) => NextOp.stepCached evm cache n
-  | .some (.jump j) => (Step.ofJump (j.run evm), cache)
-  | .some (.halt l) => (.halt (l.run evm.sta evm.dyna), cache)
+    (.halt (.error ⟨.halt (.invalidOpcode .none), dyna⟩), cache)
+  | .some (.next n) => NextOp.stepParts pc0 sta dyna cache n
+  | .some (.jump j) => (Step.ofJump (JumpOp.runCore pc0 dyna sta j), cache)
+  | .some (.halt l) => (.halt (l.run sta dyna), cache)
 
-private theorem Evm.stepCached_fst
-    (evm : Evm) (cache : Option CalldataCache) :
-    (Evm.stepCached evm cache).1 = Evm.step evm := by
-  unfold Evm.stepCached Evm.step
-  cases h : evm.getInst with
+private theorem Evm.stepParts_fst
+    (pc0 : Nat) (sta : Sevm) (dyna : Devm) (cache : Option CalldataCache) :
+    (Evm.stepParts pc0 sta dyna cache).1 = Evm.step ⟨pc0, sta, dyna⟩ := by
+  unfold Evm.stepParts Evm.step Evm.getInst
+  cases h : ByteArray.getOp sta.code pc0 with
   | none => rfl
   | some inst =>
     cases inst with
-    | next n => exact NextOp.stepCached_fst evm cache n
+    | next n => exact NextOp.stepParts_fst pc0 sta dyna cache n
     | jump j => rfl
     | halt l => rfl
 
@@ -407,11 +431,11 @@ private def execFueledCachedCore :
     Evm → Nat → Option CalldataCache →
       Fueled (EvmError × Devm) Devm × Option CalldataCache
   | _, 0, cache => (Fueled.exhausted, cache)
-  | evm, fuel + 1, cache =>
-    let ⟨step, cache⟩ := Evm.stepCached evm cache
+  | ⟨pc0, sta, dyna⟩, fuel + 1, cache =>
+    let ⟨step, cache⟩ := Evm.stepParts pc0 sta dyna cache
     match step with
     | .halt ex => (Fueled.ofExcept ex, cache)
-    | .next pc devm => execFueledCachedCore ⟨pc, evm.sta, devm⟩ fuel cache
+    | .next pc devm => execFueledCachedCore ⟨pc, sta, devm⟩ fuel cache
     | .spawn child pending pc =>
       let ⟨settled, cache⟩ : Option (Except Fault Frame.Result) × Option CalldataCache :=
         match enter child with
@@ -424,11 +448,11 @@ private def execFueledCachedCore :
       | some (.error fault) =>
         (Fueled.ofExcept (.error (fault.toEvmError, child.checkpoint.toDevm)), cache)
       | some (.ok result) =>
-        match resume evm.sta.benvStat.rules pending child.checkpoint result with
+        match resume sta.benvStat.rules pending child.checkpoint result with
         | .error fault =>
           (Fueled.ofExcept (.error (fault.toEvmError, child.checkpoint.toDevm)), cache)
         | .ok (.error (reason, devm)) => (Fueled.ofExcept (.error (.halt reason, devm)), cache)
-        | .ok (.ok devm) => execFueledCachedCore ⟨pc, evm.sta, devm⟩ fuel cache
+        | .ok (.ok devm) => execFueledCachedCore ⟨pc, sta, devm⟩ fuel cache
 
 private theorem execFueledCachedCore_fst :
     ∀ fuel evm cache,
@@ -438,13 +462,14 @@ private theorem execFueledCachedCore_fst :
   | zero => intro evm cache; rfl
   | succ fuel ih =>
     intro evm cache
-    rcases hstep : Evm.stepCached evm cache with ⟨step, cache'⟩
-    have hs : step = Evm.step evm := by
-      simpa [hstep] using Evm.stepCached_fst evm cache
+    rcases evm with ⟨pc0, sta, dyna⟩
+    rcases hstep : Evm.stepParts pc0 sta dyna cache with ⟨step, cache'⟩
+    have hs : step = Evm.step ⟨pc0, sta, dyna⟩ := by
+      simpa [hstep] using Evm.stepParts_fst pc0 sta dyna cache
     simp only [execFueledCachedCore, hstep, execFueled, ← hs]
     cases step with
     | halt ex => rfl
-    | next pc devm => exact ih ⟨pc, evm.sta, devm⟩ cache'
+    | next pc devm => exact ih ⟨pc, sta, devm⟩ cache'
     | spawn child pending pc =>
       dsimp only
       cases hentry : enter child with
@@ -453,7 +478,7 @@ private theorem execFueledCachedCore_fst :
         rcases r with fault | result
         · rfl
         · dsimp only
-          rcases hr : resume evm.sta.benvStat.rules pending child.checkpoint result with
+          rcases hr : resume sta.benvStat.rules pending child.checkpoint result with
             fault | (⟨reason, devm⟩ | devm)
           · rfl
           · rfl
@@ -472,7 +497,7 @@ private theorem execFueledCachedCore_fst :
           rcases hset : settle child raw with fault | result
           · rfl
           · dsimp only
-            rcases hr : resume evm.sta.benvStat.rules pending child.checkpoint result with
+            rcases hr : resume sta.benvStat.rules pending child.checkpoint result with
               fault | (⟨reason, devm⟩ | devm)
             · rfl
             · rfl

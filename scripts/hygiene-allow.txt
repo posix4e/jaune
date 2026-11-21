@@ -6,8 +6,8 @@
 # neither a stray dbg_trace or sorry nor a new axiom, opaque, @[extern],
 # @[implemented_by], partial def, unsafe or native_decide can enter unnoticed.
 #
-# Upstream this file carries EXACTLY ONE entry (this branch adds a second, the
-# last below, which is unproved and says so), and that is the point: TRUSTED.md's
+# Upstream this file carries EXACTLY ONE entry (this branch adds five: one that is
+# unproved and says so, and four proved ones), and that is the point: TRUSTED.md's
 # account of what Jaune does not use is a gate rather than a fact about a
 # moment. An entry here is a hole in that account, so adding one is a decision
 # to be argued for, not a way to make the gate quiet. If prose trips the gate,
@@ -61,3 +61,25 @@ Jaune/Implementation/CachedDriver.lean @[csimp] private theorem execFueled_eq_ca
 # WHAT WOULD REMOVE IT. `jumpableCompiled` written without `while` (a loop the
 # kernel cannot unfold) and a proof `jumpable = jumpableCompiled`, as a `csimp`.
 Jaune/Machine.lean attribute [implemented_by jumpableCompiled] jumpable
+
+# `@[csimp]` on the four lifts — on this branch only, and proved.
+#
+# WHAT THEY CARRY. Each proposition is `lift = liftCompiled`, a proved theorem.
+# The compiled form takes the `Devm` apart before the core runs and builds the
+# result from the parts, where the definition reads a part, runs the core and
+# writes the result back into the `Devm` it still holds. The proofs are a case
+# split on the `Devm` and on the core's outcome.
+#
+# WHY THEY ARE HERE. Compiled as defined, the `Devm` holds the machine state
+# while the core runs on it, so the state has two owners and no array in it can
+# be written where it lies: every write to EVM memory copied all of memory. With
+# the step given the machine in its parts (`Jaune/Implementation/CachedDriver.lean`),
+# these are what let a write to memory be a write.
+#
+# WHY THEY ARE LISTED. For the reason the first entry gives: `@[csimp]` makes the
+# binary run a different function from the definition, and this gate is where
+# that is counted.
+Jaune/Machine.lean @[csimp] theorem liftMach_eq_compiled : @liftMach = @liftMachCompiled := by
+Jaune/Machine.lean @[csimp] theorem liftMachPure_eq_compiled : @liftMachPure = @liftMachPureCompiled := by
+Jaune/Machine.lean @[csimp] theorem liftMachMeta_eq_compiled : @liftMachMeta = @liftMachMetaCompiled := by
+Jaune/Machine.lean @[csimp] theorem liftMachMetaPure_eq_compiled :
